@@ -112,6 +112,19 @@ def render() -> None:
 
     if not (run or st.session_state.get("uzman_ready")):
         st.info("Emirleri üret — PP, pozisyon, VaR ve walk-forward sırayla dolar.")
+        with st.expander("Otomatik sabah raporu"):
+            st.markdown(
+                """
+1. Test: `sabah_raporu.bat` veya  
+   `.\.venv\Scripts\python.exe sabah_raporu.py --print`
+2. Zamanlayıcı (her gün 08:00):  
+   `.\kur_sabah_gorevi.ps1`
+3. E-posta için `.streamlit/secrets.toml.example` dosyasını  
+   `secrets.toml` olarak kopyala, `[smtp]` doldur, sonra:  
+   `.\kur_sabah_gorevi.ps1 -WithEmail`
+4. Rapor dosyası: `data/sabah_raporu_son.txt`
+                """
+            )
         return
 
     st.session_state.uzman_ready = True
