@@ -1,0 +1,20 @@
+# Streamlit Cloud — GitHub'a bunları yükle (repo kökü)
+
+Zorunlu:
+  streamlit_app.py
+  requirements.txt
+  views/__init__.py
+  views/uzman.py
+  views/tarayici.py
+  utils/__init__.py
+  utils/*.py  (hepsi)
+  .streamlit/config.toml
+
+Yükleme:
+  .venv/
+  data/
+  __pycache__/
+  calistir.bat  (opsiyonel)
+
+Main file ayarı: streamlit_app.py
+Python: 3.11+
