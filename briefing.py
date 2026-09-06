@@ -1,97 +1,107 @@
-"""Sabah brifingi metni — portföyle uyumlu hareketler."""
+"""Sabah brifingi — Rejim / Kitap / Emir. Gürültüsüz, kitaba kilitli."""
 
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 import pandas as pd
 
 try:
-    from utils.universe import risk_profile_label
+    from utils.portfolio import RULES
 except ImportError:
-    from universe import risk_profile_label
+    from portfolio import RULES
 
 
-def _fmt_pct(value: object) -> str:
-    if value is None or pd.isna(value):
-        return "—"
-    return f"{float(value) * 100:+.2f}%"
-
-
-def _activity_reason(row: pd.Series) -> str:
-    parts: list[str] = []
-    daily = row.get("daily_return")
-    volume = row.get("volume_change")
-    mom = row.get("momentum_5d")
-    if daily is not None and pd.notna(daily) and abs(float(daily)) >= 0.008:
-        parts.append(f"günlük getiri {_fmt_pct(daily)}")
-    if volume is not None and pd.notna(volume) and abs(float(volume)) >= 0.15:
-        parts.append(f"hacim/AUM değişimi {_fmt_pct(volume)}")
-    if mom is not None and pd.notna(mom) and abs(float(mom)) >= 0.02:
-        parts.append(f"5 günlük momentum {_fmt_pct(mom)}")
-    if not parts:
-        parts.append(f"fırsat puanı {float(row.get('score', 0)):.0f}")
-    return ", ".join(parts)
-
-
-def build_briefing(
-    funds: pd.DataFrame,
-    stocks: pd.DataFrame,
-    user_risk: int,
-    portfolio_funds: list[str],
-    portfolio_stocks: list[str],
+def build_clean_briefing(
+    book: pd.DataFrame,
+    risk_snapshot: Any,
+    pp_orders: list,
+    position_orders: list | None = None,
     as_of: date | None = None,
-) -> dict[str, object]:
-    """Portföy uyumlu hareketler için kısa sabah özeti."""
+) -> dict[str, str]:
+    """
+    Üç satır:
+    Rejim · Kitap · Emir (veya YOK / DOKUNMA)
+    Yeni TLY avlamaz; yalnız eldeki kurallar.
+    """
     day = as_of or date.today()
-    profile = risk_profile_label(user_risk)
-    owned_funds = {code.upper() for code in portfolio_funds}
-    owned_stocks = {code.upper() for code in portfolio_stocks}
+    position_orders = position_orders or []
 
-    fund_hits = pd.DataFrame()
-    if not funds.empty and "fund_code" in funds.columns:
-        in_portfolio = funds[funds["fund_code"].isin(owned_funds)]
-        movers = funds.head(5)
-        fund_hits = pd.concat([in_portfolio, movers]).drop_duplicates("fund_code")
-        fund_hits = fund_hits.head(5)
-
-    stock_hits = pd.DataFrame()
-    if not stocks.empty and "ticker" in stocks.columns:
-        in_portfolio = stocks[stocks["ticker"].isin(owned_stocks)]
-        movers = stocks.head(5)
-        stock_hits = pd.concat([in_portfolio, movers]).drop_duplicates("ticker")
-        stock_hits = stock_hits.head(5)
-
-    lines: list[str] = []
-    if not fund_hits.empty:
-        names = []
-        for _, row in fund_hits.iterrows():
-            code = row["fund_code"]
-            mark = "portföyünde" if code in owned_funds else "risk profiline uyumlu"
-            names.append(f"**{code}** ({mark}: {_activity_reason(row)})")
-        lines.append(
-            f"Bugün portföyüne uyumlu şu fonlarda hareketlilik var: {'; '.join(names)}."
-        )
+    # --- Rejim ---
+    mstr_vol = getattr(risk_snapshot, "mstr_vol_pct", None)
+    corr = getattr(risk_snapshot, "nvda_mstr_corr", None)
+    if mstr_vol is None:
+        vol_bit = "MSTR vol: veri yok"
+        regime = "Belirsiz"
+    elif mstr_vol > RULES["mstr_vol_annual_pct"]:
+        vol_bit = f"MSTR vol %{mstr_vol:.0f} (eşik üstü)"
+        regime = "Sıkı / riskli"
     else:
-        lines.append(
-            "Bugün risk profiline uyan fon taramasında öne çıkan bir hareket bulunamadı."
-        )
+        vol_bit = f"MSTR vol %{mstr_vol:.0f} (eşik altı)"
+        regime = "Nötr"
+    corr_bit = f" · NVDA–MSTR corr {corr:.2f}" if corr is not None else ""
+    regime_line = f"Rejim: {regime} · {vol_bit}{corr_bit}"
 
-    if not stock_hits.empty:
-        names = []
-        for _, row in stock_hits.iterrows():
-            ticker = row["ticker"]
-            mark = "portföyünde" if ticker in owned_stocks else "risk profiline uyumlu"
-            names.append(f"**{ticker}** ({mark}: {_activity_reason(row)})")
-        lines.append(f"Hisse tarafında dikkat çekenler: {'; '.join(names)}.")
-
-    headline = (
-        f"{day.strftime('%d.%m.%Y')} sabah brifingi — {profile.lower()} "
-        f"(risk skoru {user_risk}/10)."
+    # --- Kitap ---
+    total_val = float(book["value_tl"].sum())
+    weights = book.set_index("code")["weight"].to_dict()
+    tly_w = weights.get("TLY", 0) * 100
+    tera_w = sum(weights.get(c, 0) for c in ("TLY", "TP2", "TLV")) * 100
+    tly_cap = RULES["tly_max_weight"] * 100
+    tera_cap = RULES["tera_max_weight"] * 100
+    book_line = (
+        f"Kitap: ₺{total_val:,.0f} · "
+        f"TLY %{tly_w:.1f} (tavan %{tly_cap:.0f}) · "
+        f"Tera %{tera_w:.0f} (tavan %{tera_cap:.0f})"
     )
+
+    # --- Emir (öncelik: SAT > AZALT > PP GEÇ > YOK) ---
+    emir_bits: list[str] = []
+
+    for o in position_orders:
+        action = getattr(o, "action", "")
+        if action in {"SAT", "AZALT"}:
+            code = getattr(o, "code", "?")
+            size = getattr(o, "size_tl", 0) or 0
+            reason = getattr(o, "reason", "")
+            size_txt = f" ₺{size:,.0f}" if size else ""
+            emir_bits.append(f"{action} {code}{size_txt} — {reason}")
+
+    for o in pp_orders:
+        action = getattr(o, "action", "")
+        if action == "GEÇ":
+            frm = getattr(o, "from_code", "?")
+            to = getattr(o, "to_code", "?")
+            amt = getattr(o, "amount_tl", 0) or 0
+            reason = getattr(o, "reason", "")
+            emir_bits.append(f"GEÇ {frm}→{to} ₺{amt:,.0f} — {reason}")
+
+    if emir_bits:
+        # En fazla 3 satır — sabah kartı kısa kalsın
+        shown = emir_bits[:3]
+        more = len(emir_bits) - len(shown)
+        emir_line = "Emir: " + " | ".join(shown)
+        if more > 0:
+            emir_line += f" | (+{more} ayrıntı altta)"
+    else:
+        emir_line = "Emir: YOK — eşik aşılmadı. Bugün: DOKUNMA / TUT."
+
+    headline = f"{day.strftime('%d.%m.%Y')} sabah brifingi"
+    body = f"{regime_line}\n\n{book_line}\n\n{emir_line}"
+
     return {
         "headline": headline,
-        "body": " ".join(lines),
-        "fund_hits": fund_hits,
-        "stock_hits": stock_hits,
+        "body": body,
+        "has_orders": bool(emir_bits),
+    }
+
+
+# Eski tarayıcı uyumu (kullanılmıyorsa zararsız)
+def build_briefing(*args, **kwargs) -> dict[str, object]:
+    return {
+        "headline": "Eski brifing devre dışı",
+        "body": "Uzman sekmesindeki sabah kartını kullan.",
+        "fund_hits": pd.DataFrame(),
+        "stock_hits": pd.DataFrame(),
     }
