@@ -1,7 +1,10 @@
 .venv/
 __pycache__/
+**/__pycache__/
 *.py[cod]
 .pytest_cache/
 .streamlit/secrets.toml
 .DS_Store
 *.log
+data/
+CLOUD_YUKLE.txt

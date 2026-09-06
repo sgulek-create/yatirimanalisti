@@ -1,4 +1,4 @@
-"""Kişisel yatırım uzmanı — Streamlit Cloud uyumlu giriş."""
+"""Kişisel yatırım uzmanı — klasörlü (views/utils) veya düz (kök) GitHub yüklemesi."""
 
 from __future__ import annotations
 
@@ -14,27 +14,32 @@ st.set_page_config(
 )
 
 ROOT = Path(__file__).resolve().parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+for path in (ROOT, ROOT / "utils", ROOT / "views"):
+    s = str(path)
+    if path.exists() and s not in sys.path:
+        sys.path.insert(0, s)
 
-_missing = [
-    name
-    for name in ("views", "utils")
-    if not (ROOT / name).is_dir() or not (ROOT / name / "__init__.py").exists()
-]
-if _missing:
+_has_pkg = (ROOT / "views" / "uzman.py").is_file() and (ROOT / "utils" / "portfolio.py").is_file()
+_has_flat = (ROOT / "uzman.py").is_file() and (ROOT / "portfolio.py").is_file()
+
+if not _has_pkg and not _has_flat:
     st.error(
-        "GitHub reposunda eksik klasör: "
-        + ", ".join(_missing)
-        + ". `views/` ve `utils/` kök dizine yükleyip Cloud'dan Redeploy et."
+        "Ne `views/`+`utils/` klasörleri ne de kökte `uzman.py`+`portfolio.py` var. "
+        "GitHub'a yerel `yanaliz` yapısını klasörleriyle yükle (düz dökme)."
     )
-    st.write("Şu an repoda görünenler:")
+    st.write("Repoda görünenler:")
     st.code("\n".join(sorted(p.name for p in ROOT.iterdir())), language=None)
     st.stop()
 
-from views import tarayici, uzman  # noqa: E402
+if _has_pkg:
+    from views import tarayici, uzman  # noqa: E402
+else:
+    import tarayici  # noqa: E402
+    import uzman  # noqa: E402
 
 st.title("Kişisel yatırım uzmanı", icon=":material/psychology:")
+if _has_flat and not _has_pkg:
+    st.caption("Düz yükleme modu — sonraki push'ta views/ ve utils/ klasörlerini kullan.")
 
 mode = st.segmented_control(
     "Modül",
