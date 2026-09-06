@@ -1,16 +1,9 @@
-"""Kişisel uzman: PP EMRİ → PORTFÖY EMRİ → Alarm/VaR → Walk-forward."""
+"""Kişisel uzman görünümü — PP EMRİ → PORTFÖY EMRİ → Alarm/VaR → Walk-forward."""
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pandas as pd
 import streamlit as st
-
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 from utils.orders import decide_positions, orders_to_frame
 from utils.portfolio import AS_OF, USDTRY, portfolio_frame, tera_weight
@@ -23,47 +16,6 @@ from utils.risk_engine import (
     walk_forward,
 )
 
-st.title("Kişisel yatırım uzmanı", icon=":material/gavel:")
-st.caption(
-    f"Kitap tarihi {AS_OF} · USDTRY {USDTRY} · TLY senin keşfin — uzman ağırlık ve park yönetir."
-)
-
-book, total = portfolio_frame()
-weights = book.set_index("code")["weight"].to_dict()
-
-with st.container(horizontal=True):
-    st.metric("Toplam", f"₺{total:,.0f}".replace(",", "."), border=True)
-    st.metric("Tera payı", f"%{tera_weight(book)*100:.0f}", border=True)
-    st.metric("TLY", f"%{weights.get('TLY', 0)*100:.1f}", border=True)
-    st.metric(
-        "ABD (NVDA+MSTR)",
-        f"%{(weights.get('NVDA', 0) + weights.get('MSTR', 0))*100:.1f}",
-        border=True,
-    )
-
-with st.expander("Kitap (Midas)", expanded=False):
-    show = book[["code", "name", "kind", "value_tl", "weight", "pnl_pct", "valor"]].copy()
-    show["weight"] = show["weight"] * 100
-    st.dataframe(
-        show.rename(
-            columns={
-                "code": "Kod",
-                "name": "Ad",
-                "kind": "Tür",
-                "value_tl": "Değer ₺",
-                "weight": "Ağırlık %",
-                "pnl_pct": "PnL %",
-                "valor": "Valör",
-            }
-        ),
-        hide_index=True,
-        column_config={
-            "Değer ₺": st.column_config.NumberColumn(format="%.2f"),
-            "Ağırlık %": st.column_config.NumberColumn(format="%.1f"),
-            "PnL %": st.column_config.NumberColumn(format="%+.2f"),
-        },
-    )
-
 
 @st.cache_data(ttl="30m", show_spinner=False)
 def _pp_table() -> pd.DataFrame:
@@ -75,9 +27,54 @@ def _risk(weights_items: tuple, pp_daily: float):
     return compute_risk(dict(weights_items), pp_daily_rate=pp_daily)
 
 
-run = st.button("Emirleri üret", type="primary", icon=":material/play_arrow:")
+def render() -> None:
+    st.subheader("Kişisel yatırım uzmanı", divider="blue")
+    st.caption(
+        f"Kitap tarihi {AS_OF} · USDTRY {USDTRY} · TLY senin keşfin — uzman ağırlık ve park yönetir."
+    )
 
-if run or "uzman_ready" in st.session_state:
+    book, total = portfolio_frame()
+    weights = book.set_index("code")["weight"].to_dict()
+
+    with st.container(horizontal=True):
+        st.metric("Toplam", f"₺{total:,.0f}".replace(",", "."), border=True)
+        st.metric("Tera payı", f"%{tera_weight(book)*100:.0f}", border=True)
+        st.metric("TLY", f"%{weights.get('TLY', 0)*100:.1f}", border=True)
+        st.metric(
+            "ABD (NVDA+MSTR)",
+            f"%{(weights.get('NVDA', 0) + weights.get('MSTR', 0))*100:.1f}",
+            border=True,
+        )
+
+    with st.expander("Kitap (Midas)", expanded=False):
+        show = book[["code", "name", "kind", "value_tl", "weight", "pnl_pct", "valor"]].copy()
+        show["weight"] = show["weight"] * 100
+        st.dataframe(
+            show.rename(
+                columns={
+                    "code": "Kod",
+                    "name": "Ad",
+                    "kind": "Tür",
+                    "value_tl": "Değer ₺",
+                    "weight": "Ağırlık %",
+                    "pnl_pct": "PnL %",
+                    "valor": "Valör",
+                }
+            ),
+            hide_index=True,
+            column_config={
+                "Değer ₺": st.column_config.NumberColumn(format="%.2f"),
+                "Ağırlık %": st.column_config.NumberColumn(format="%.1f"),
+                "PnL %": st.column_config.NumberColumn(format="%+.2f"),
+            },
+        )
+
+    run = st.button("Emirleri üret", type="primary", icon=":material/play_arrow:")
+
+    if not (run or st.session_state.get("uzman_ready")):
+        st.info("Emirleri üret — PP, pozisyon, VaR ve walk-forward sırayla dolar.")
+        return
+
     st.session_state.uzman_ready = True
 
     with st.spinner("TEFAS PP + Yahoo risk hesaplanıyor…"):
@@ -96,8 +93,8 @@ if run or "uzman_ready" in st.session_state:
         risk = _risk(tuple(sorted(weights.items())), pp_daily)
 
         preferred = None
-        pp_orders = []
-        meta = {}
+        pp_orders: list = []
+        meta: dict = {}
         if not pp_table.empty:
             tp2_v = float(book.loc[book["code"] == "TP2", "value_tl"].iloc[0])
             tlv_v = float(book.loc[book["code"] == "TLV", "value_tl"].iloc[0])
@@ -115,12 +112,14 @@ if run or "uzman_ready" in st.session_state:
         )
         pos_df = orders_to_frame(pos)
 
-    # --- 1) PP EMRİ ---
     st.subheader("1) PP EMRİ")
     if pp_orders:
         st.code(format_pp_emri(pp_orders, meta), language=None)
     else:
-        st.code("PP EMRİ:\n- TUT TP2 | %50 | veri yok\n- TUT TLV | %50 | veri yok", language=None)
+        st.code(
+            "PP EMRİ:\n- TUT TP2 | %50 | veri yok\n- TUT TLV | %50 | veri yok",
+            language=None,
+        )
 
     c1, c2 = st.columns(2)
     with c1:
@@ -144,7 +143,6 @@ if run or "uzman_ready" in st.session_state:
         else:
             st.caption("Veri yok")
 
-    # --- 2) PORTFÖY EMRİ ---
     st.subheader("2) PORTFÖY EMRİ")
     st.dataframe(
         pos_df,
@@ -152,11 +150,12 @@ if run or "uzman_ready" in st.session_state:
         column_config={
             "Hedef ağırlık": st.column_config.NumberColumn(format="%.1%"),
             "İşlem ₺": st.column_config.NumberColumn(format="%+.0f"),
-            "Güven": st.column_config.ProgressColumn(min_value=0, max_value=1, format="%.0f%%"),
+            "Güven": st.column_config.ProgressColumn(
+                min_value=0, max_value=1, format="%.0f%%"
+            ),
         },
     )
 
-    # --- 3) Alarm + VaR ---
     st.subheader("3) Alarm + VaR")
     for a in risk.alarms:
         st.warning(a)
@@ -186,7 +185,6 @@ if run or "uzman_ready" in st.session_state:
     if risk.notes:
         st.caption(" · ".join(risk.notes))
 
-    # --- 4) Walk-forward ---
     st.subheader("4) Walk-forward")
     with st.spinner("Walk-forward (T+2 valör)…"):
         close = fetch_closes(["NVDA", "MSTR", "SLV", "XU100.IS"], period="1y")
@@ -228,6 +226,4 @@ if run or "uzman_ready" in st.session_state:
             "TLY XU100×1.35 vekil — overlay'i TLY'nin başarısızlığı diye yorma."
         )
 
-    st.caption("Kişisel kural motoru · tek satır: karar senin, emir senin kuralların.")
-else:
-    st.info("Emirleri üret — PP, pozisyon, VaR ve walk-forward sırayla dolar.")
+    st.caption("Kişisel kural motoru · karar senin, emir senin kuralların.")
