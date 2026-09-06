@@ -1,202 +1,69 @@
-"""Fırsat tarayıcısı görünümü."""
+"""PP park taraması — yeni serbest/TLY avı yok."""
 
 from __future__ import annotations
 
-from datetime import date
-
-import pandas as pd
 import streamlit as st
 
-from utils.briefing import build_briefing
-from utils.scoring import build_fund_table, build_stock_table, kiid_band, top_n
-from utils.stocks import fetch_stock_history
-from utils.tefas import TefasError, fetch_fund_history, fetch_fund_snapshot
-from utils.universe import (
-    DEFAULT_PORTFOLIO_FUNDS,
-    DEFAULT_PORTFOLIO_STOCKS,
-    DEFAULT_STOCKS,
-    FUND_KIND_LABELS,
-    parse_codes,
-    risk_profile_label,
-)
-
-TOP_N = 5
+try:
+    from utils.pp_scan import build_pp_orders, format_pp_emri, load_pp_table
+    from utils.portfolio import portfolio_frame
+except ImportError:
+    from pp_scan import build_pp_orders, format_pp_emri, load_pp_table
+    from portfolio import portfolio_frame
 
 
-@st.cache_data(ttl="1h", show_spinner=False)
-def load_fund_snapshot(kinds: tuple[str, ...]) -> pd.DataFrame:
-    return fetch_fund_snapshot(kinds)
-
-
-@st.cache_data(ttl="1h", show_spinner=False)
-def load_fund_history(kinds: tuple[str, ...]) -> pd.DataFrame:
-    return fetch_fund_history(kinds)
-
-
-@st.cache_data(ttl="15m", show_spinner=False)
-def load_stock_history(tickers: tuple[str, ...]) -> pd.DataFrame:
-    return fetch_stock_history(list(tickers))
-
-
-def _as_of(history: pd.DataFrame) -> date | None:
-    if history.empty or "date" not in history.columns:
-        return None
-    last = pd.to_datetime(history["date"], errors="coerce").max()
-    if pd.isna(last):
-        return None
-    return last.date()
-
-
-def _fund_display(table: pd.DataFrame) -> pd.DataFrame:
-    if table.empty:
-        return table
-    cols = {
-        "fund_code": "Kod",
-        "fund_name": "Fon",
-        "score": "Puan",
-        "daily_return": "Günlük getiri",
-        "volume_change": "Hacim değişimi",
-        "momentum_5d": "Momentum (5g)",
-        "kiid_risk": "KIID risk",
-        "spark": "Trend",
-    }
-    keep = [c for c in cols if c in table.columns]
-    return table[keep].rename(columns=cols)
-
-
-def _stock_display(table: pd.DataFrame) -> pd.DataFrame:
-    if table.empty:
-        return table
-    cols = {
-        "ticker": "Sembol",
-        "score": "Puan",
-        "daily_return": "Günlük getiri",
-        "volume_change": "Hacim değişimi",
-        "momentum_5d": "Momentum (5g)",
-        "risk_score": "Risk skoru",
-        "spark": "Trend",
-    }
-    keep = [c for c in cols if c in table.columns]
-    return table[keep].rename(columns=cols)
+@st.cache_data(ttl="30m", show_spinner=False)
+def _pp() -> pd.DataFrame:
+    return load_pp_table()
 
 
 def render() -> None:
-    st.subheader("Fırsat tarayıcısı", divider="blue")
-    st.caption("TEFAS + yfinance momentum taraması.")
-
-    with st.sidebar:
-        st.subheader("Tarama ayarları")
-        risk_score = st.slider("Risk skoru", 1, 10, 5)
-        st.caption(
-            f"{risk_profile_label(risk_score)} · KIID "
-            f"{kiid_band(risk_score)[0]}–{kiid_band(risk_score)[1]}"
-        )
-        kind_labels = list(FUND_KIND_LABELS.values())
-        selected_kinds = st.pills(
-            "Fon tipi",
-            options=kind_labels,
-            default=["Yatırım fonları", "Borsa yatırım fonları"],
-            selection_mode="multi",
-        )
-        kind_codes = tuple(
-            code
-            for code, label in FUND_KIND_LABELS.items()
-            if label in (selected_kinds or [])
-        )
-        stock_text = st.text_area(
-            "Hisse evreni", value=", ".join(DEFAULT_STOCKS), height=120
-        )
-        portfolio_fund_text = st.text_input(
-            "Portföy fonları", value=", ".join(DEFAULT_PORTFOLIO_FUNDS)
-        )
-        portfolio_stock_text = st.text_input(
-            "Portföy hisseleri", value=", ".join(DEFAULT_PORTFOLIO_STOCKS)
-        )
-        if st.button("Verileri yenile", icon=":material/refresh:"):
-            st.cache_data.clear()
-            st.rerun()
-
-    tickers = tuple(parse_codes(stock_text))
-    portfolio_funds = parse_codes(portfolio_fund_text)
-    portfolio_stocks = parse_codes(portfolio_stock_text)
-
-    fund_error = None
-    stock_error = None
-    fund_history = pd.DataFrame()
-    funds = pd.DataFrame()
-    stocks = pd.DataFrame()
-
-    if not kind_codes:
-        fund_error = "En az bir fon tipi seç."
-    else:
-        try:
-            with st.spinner("TEFAS…"):
-                fund_snapshot = load_fund_snapshot(kind_codes)
-                fund_history = load_fund_history(kind_codes)
-            funds = build_fund_table(fund_history, fund_snapshot, risk_score)
-        except (TefasError, OSError, ValueError) as exc:
-            fund_error = str(exc)
-
-    if tickers:
-        try:
-            with st.spinner("Hisseler…"):
-                stock_history = load_stock_history(tickers)
-            stocks = build_stock_table(stock_history, risk_score)
-        except (OSError, ValueError) as exc:
-            stock_error = str(exc)
-
-    as_of = _as_of(fund_history) or date.today()
-    briefing = build_briefing(
-        funds, stocks, risk_score, portfolio_funds, portfolio_stocks, as_of=as_of
+    st.subheader("PP park taraması", divider="blue")
+    st.caption(
+        "Sadece para piyasası / katılım PP. Serbest fon avı yok — "
+        "amaç park + silah, yeni TLY aramak değil."
     )
-    top_funds = top_n(funds, TOP_N)
-    top_stocks = top_n(stocks, TOP_N)
 
-    score_col = st.column_config.ProgressColumn("Puan", min_value=0, max_value=100, format="%.0f")
-    pct_col = st.column_config.NumberColumn(format="percent", step=0.0001)
-    trend_col = st.column_config.LineChartColumn("Trend", width="medium", color="auto")
+    book, _ = portfolio_frame()
+    tp2_v = float(book.loc[book["code"] == "TP2", "value_tl"].iloc[0])
+    tlv_v = float(book.loc[book["code"] == "TLV", "value_tl"].iloc[0])
 
-    with st.container(border=True):
-        st.markdown("**Sabah brifingi**")
-        st.markdown(f"**{briefing['headline']}**")
-        st.markdown(briefing["body"])
+    try:
+        with st.spinner("TEFAS PP…"):
+            table = _pp()
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"PP veri yok: {exc}")
+        return
 
-    fund_col, stock_col = st.columns(2)
-    with fund_col:
-        with st.container(border=True):
-            st.markdown("**İlk 5 fon**")
-            if fund_error:
-                st.warning(fund_error)
-            elif top_funds.empty:
-                st.info("Sonuç yok.")
-            else:
-                st.dataframe(
-                    _fund_display(top_funds),
-                    hide_index=True,
-                    column_config={
-                        "Puan": score_col,
-                        "Günlük getiri": pct_col,
-                        "Hacim değişimi": pct_col,
-                        "Momentum (5g)": pct_col,
-                        "Trend": trend_col,
-                    },
-                )
-    with stock_col:
-        with st.container(border=True):
-            st.markdown("**İlk 5 hisse**")
-            if stock_error:
-                st.warning(stock_error)
-            elif top_stocks.empty:
-                st.info("Sonuç yok.")
-            else:
-                st.dataframe(
-                    _stock_display(top_stocks),
-                    hide_index=True,
-                    column_config={
-                        "Puan": score_col,
-                        "Günlük getiri": pct_col,
-                        "Hacim değişimi": pct_col,
-                        "Momentum (5g)": pct_col,
-                        "Trend": trend_col,
-                    },
-                )
+    if table.empty:
+        st.warning("PP tablosu boş.")
+        return
+
+    orders, meta = build_pp_orders(table, tp2_v, tlv_v)
+    st.code(format_pp_emri(orders, meta), language=None)
+
+    c1, c2 = st.columns(2)
+    cols = ["fund_code", "return_1m", "return_3m", "daily_pct"]
+    show_cols = [c for c in cols if c in table.columns]
+    if "daily_pct" not in table.columns and "daily_approx" in table.columns:
+        show_cols = ["fund_code", "return_1m", "return_3m", "daily_approx"]
+
+    with c1:
+        st.markdown("**Tera dışı konvansiyonel top5**")
+        top = meta.get("top_conventional")
+        if top is not None and not top.empty:
+            st.dataframe(top[show_cols].head(5), hide_index=True)
+        else:
+            st.caption("Veri yok")
+    with c2:
+        st.markdown("**Tera dışı katılım top5**")
+        topk = meta.get("top_katilim")
+        if topk is not None and not topk.empty:
+            st.dataframe(topk[show_cols].head(5), hide_index=True)
+        else:
+            st.caption("Veri yok")
+
+    st.caption(
+        "Geçiş kuralı: 1A ≥ +0.25 puan ve 3A teyit. "
+        "TLV yalnız katılım ligi. Faiz düşünce tüm PP iner — kilit getiri yok."
+    )

@@ -8,7 +8,10 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
-from utils.portfolio import RULES, USDTRY
+try:
+    from utils.portfolio import RULES, USDTRY
+except ImportError:
+    from portfolio import RULES, USDTRY
 
 
 PROXY = {

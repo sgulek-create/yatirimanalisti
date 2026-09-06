@@ -6,7 +6,10 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from utils.portfolio import RULES, tera_weight
+try:
+    from utils.portfolio import RULES, tera_weight
+except ImportError:
+    from portfolio import RULES, tera_weight
 
 
 @dataclass

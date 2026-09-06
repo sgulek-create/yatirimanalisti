@@ -105,6 +105,18 @@ RULES = {
     "proxy_bos": "XU100*1.2",
 }
 
+# Hedef kovalar — "yeni TLY avı" yok; PP ile yaşat
+TARGET_BUCKETS = {
+    "pp": (0.35, 0.40),  # park + silah (Tera dışı tercih)
+    "atak": (0.35, 0.40),  # mevcut tema / TLY tavanlı; kopya avı değil
+    "global_veya_emtia": (0.15, 0.20),  # NVDA veya GMC — ikisi birden zorlama
+}
+
+MANIFESTO = (
+    "Katlama hedefi yok. TLY benzeri kazancı ikinci kez arama; "
+    "PP tamponu ile yaşat, vol yüksekken realize et, valör için parkı önceden tut."
+)
+
 
 def portfolio_frame():
     import pandas as pd
@@ -134,3 +146,24 @@ def portfolio_frame():
 
 def tera_weight(df) -> float:
     return float(df.loc[df["code"].isin(["TLY", "TP2", "TLV"]), "weight"].sum())
+
+
+def bucket_weights(df) -> dict[str, float]:
+    """Atak / PP / global / emtia ağırlıkları."""
+    w = df.set_index("code")["weight"]
+    kind = df.set_index("code")["kind"]
+    gmc = float(w.get("GMC", 0.0) if "GMC" in w.index else 0.0)
+    nvda = float(w.get("NVDA", 0.0) if "NVDA" in w.index else 0.0)
+    pp = float(w[kind.isin(["pp", "katilim_pp"])].sum())
+    atak_core = float(
+        (w.get("TLY", 0.0) if "TLY" in w.index else 0.0)
+        + (w.get("BOS", 0.0) if "BOS" in w.index else 0.0)
+        + (w.get("MSTR", 0.0) if "MSTR" in w.index else 0.0)
+    )
+    return {
+        "pp": pp,
+        "atak": atak_core + nvda,
+        "emtia": gmc,
+        "nvda": nvda,
+        "tly": float(w.get("TLY", 0.0) if "TLY" in w.index else 0.0),
+    }

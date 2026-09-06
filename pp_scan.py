@@ -6,14 +6,24 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from utils.portfolio import (
-    CONVENTIONAL_PP,
-    EXCLUDE_FROM_PP,
-    KATILIM_PP,
-    PP_UNIVERSE,
-    RULES,
-)
-from utils.tefas import fetch_fund_snapshot
+try:
+    from utils.portfolio import (
+        CONVENTIONAL_PP,
+        EXCLUDE_FROM_PP,
+        KATILIM_PP,
+        PP_UNIVERSE,
+        RULES,
+    )
+    from utils.tefas import fetch_fund_snapshot
+except ImportError:
+    from portfolio import (
+        CONVENTIONAL_PP,
+        EXCLUDE_FROM_PP,
+        KATILIM_PP,
+        PP_UNIVERSE,
+        RULES,
+    )
+    from tefas import fetch_fund_snapshot
 
 
 @dataclass
@@ -55,7 +65,11 @@ def load_pp_table(extra_codes: list[str] | None = None) -> pd.DataFrame:
         if col in table.columns:
             table[col] = pd.to_numeric(table[col], errors="coerce")
 
-    table["daily_approx"] = table["return_1m"] / 21.0  # iş günü yaklaşık (% puan)
+    # return_1m TEFAS'ta yüzde puan (örn. 4.07 = %4.07/ay)
+    # daily_pct = günlük yüzde puan; daily_return = bileşik için ondalık
+    table["daily_pct"] = table["return_1m"] / 21.0
+    table["daily_return"] = table["daily_pct"] / 100.0
+    table["daily_approx"] = table["daily_pct"]  # geriye uyum (gösterim)
     name = table["fund_name"].fillna("")
     cat = table["category"].fillna("")
     table["is_katilim"] = (

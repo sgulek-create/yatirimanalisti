@@ -6,7 +6,10 @@ from datetime import date
 
 import pandas as pd
 
-from utils.universe import risk_profile_label
+try:
+    from utils.universe import risk_profile_label
+except ImportError:
+    from universe import risk_profile_label
 
 
 def _fmt_pct(value: object) -> str:

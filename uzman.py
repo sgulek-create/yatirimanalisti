@@ -5,16 +5,44 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from utils.orders import decide_positions, orders_to_frame
-from utils.portfolio import AS_OF, USDTRY, portfolio_frame, tera_weight
-from utils.pp_scan import build_pp_orders, format_pp_emri, load_pp_table
-from utils.risk_engine import (
-    build_proxy_returns,
-    compute_risk,
-    fetch_closes,
-    performance_stats,
-    walk_forward,
-)
+try:
+    from utils.orders import decide_positions, orders_to_frame
+    from utils.portfolio import (
+        AS_OF,
+        MANIFESTO,
+        TARGET_BUCKETS,
+        USDTRY,
+        bucket_weights,
+        portfolio_frame,
+        tera_weight,
+    )
+    from utils.pp_scan import build_pp_orders, format_pp_emri, load_pp_table
+    from utils.risk_engine import (
+        build_proxy_returns,
+        compute_risk,
+        fetch_closes,
+        performance_stats,
+        walk_forward,
+    )
+except ImportError:
+    from orders import decide_positions, orders_to_frame
+    from portfolio import (
+        AS_OF,
+        MANIFESTO,
+        TARGET_BUCKETS,
+        USDTRY,
+        bucket_weights,
+        portfolio_frame,
+        tera_weight,
+    )
+    from pp_scan import build_pp_orders, format_pp_emri, load_pp_table
+    from risk_engine import (
+        build_proxy_returns,
+        compute_risk,
+        fetch_closes,
+        performance_stats,
+        walk_forward,
+    )
 
 
 @st.cache_data(ttl="30m", show_spinner=False)
@@ -29,22 +57,31 @@ def _risk(weights_items: tuple, pp_daily: float):
 
 def render() -> None:
     st.subheader("Kişisel yatırım uzmanı", divider="blue")
+    st.info(MANIFESTO)
     st.caption(
-        f"Kitap tarihi {AS_OF} · USDTRY {USDTRY} · TLY senin keşfin — uzman ağırlık ve park yönetir."
+        f"Kitap {AS_OF} · USDTRY {USDTRY} · TLY senin keşfin — "
+        "uzman ağırlık, park ve vol ile realize eder; ikinci TLY avlamaz."
     )
 
     book, total = portfolio_frame()
     weights = book.set_index("code")["weight"].to_dict()
+    buckets = bucket_weights(book)
 
     with st.container(horizontal=True):
         st.metric("Toplam", f"₺{total:,.0f}".replace(",", "."), border=True)
         st.metric("Tera payı", f"%{tera_weight(book)*100:.0f}", border=True)
         st.metric("TLY", f"%{weights.get('TLY', 0)*100:.1f}", border=True)
-        st.metric(
-            "ABD (NVDA+MSTR)",
-            f"%{(weights.get('NVDA', 0) + weights.get('MSTR', 0))*100:.1f}",
-            border=True,
-        )
+        st.metric("PP park", f"%{buckets['pp']*100:.0f}", border=True)
+
+    lo_pp, hi_pp = TARGET_BUCKETS["pp"]
+    lo_at, hi_at = TARGET_BUCKETS["atak"]
+    st.caption(
+        f"Hedef kova: PP %{lo_pp*100:.0f}–{hi_pp*100:.0f} · "
+        f"Atak %{lo_at*100:.0f}–{hi_at*100:.0f} · "
+        f"Global veya emtia %15–20 (NVDA ile GMC aynı kova değil). "
+        f"Şu an: PP %{buckets['pp']*100:.0f} · Atak %{buckets['atak']*100:.0f} · "
+        f"GMC %{buckets['emtia']*100:.0f}."
+    )
 
     with st.expander("Kitap (Midas)", expanded=False):
         show = book[["code", "name", "kind", "value_tl", "weight", "pnl_pct", "valor"]].copy()
@@ -85,7 +122,12 @@ def render() -> None:
             st.error(f"PP tarama hatası: {exc}")
 
         pp_daily = 0.001
-        if not pp_table.empty:
+        if not pp_table.empty and "daily_return" in pp_table.columns:
+            sub = pp_table[pp_table["fund_code"].isin(["TP2", "TLV"])]
+            if not sub.empty and sub["daily_return"].notna().any():
+                # daily_return zaten ondalık (örn. 0.00194 ≈ %0.194/gün)
+                pp_daily = float(sub["daily_return"].mean())
+        elif not pp_table.empty:
             sub = pp_table[pp_table["fund_code"].isin(["TP2", "TLV"])]
             if not sub.empty and sub["daily_approx"].notna().any():
                 pp_daily = float(sub["daily_approx"].mean() / 100.0)
@@ -189,6 +231,7 @@ def render() -> None:
     with st.spinner("Walk-forward (T+2 valör)…"):
         close = fetch_closes(["NVDA", "MSTR", "SLV", "XU100.IS"], period="1y")
         asset_r, _ = build_proxy_returns(close)
+        # PP kolonları 0: getiri port_ret içinde pp_daily ile eklenir (çift sayma yok)
         for code in ("TP2", "TLV"):
             if code not in asset_r.columns:
                 asset_r[code] = 0.0

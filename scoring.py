@@ -5,8 +5,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from utils.metrics import metrics_from_long_prices, vol_to_risk_score
-from utils.universe import RISK_BANDS
+try:
+    from utils.metrics import metrics_from_long_prices, vol_to_risk_score
+    from utils.universe import RISK_BANDS
+except ImportError:
+    from metrics import metrics_from_long_prices, vol_to_risk_score
+    from universe import RISK_BANDS
 
 
 def _zscore(series: pd.Series) -> pd.Series:
