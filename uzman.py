@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 try:
-    from utils.briefing import build_clean_briefing
+    from utils.briefing import build_clean_briefing, build_expert_note
     from utils.orders import decide_positions, orders_to_frame
     from utils.portfolio import (
         AS_OF,
@@ -26,7 +26,7 @@ try:
         walk_forward,
     )
 except ImportError:
-    from briefing import build_clean_briefing
+    from briefing import build_clean_briefing, build_expert_note
     from orders import decide_positions, orders_to_frame
     from portfolio import (
         AS_OF,
@@ -157,13 +157,19 @@ def render() -> None:
         pos_df = orders_to_frame(pos)
 
     briefing = build_clean_briefing(book, risk, pp_orders, position_orders=pos)
+    expert = build_expert_note(book, pos, pp_orders, preferred_pp=preferred)
+
     with st.container(border=True):
         st.subheader(briefing["headline"], icon=":material/wb_sunny:")
         st.text(briefing["body"])
         if briefing.get("has_orders"):
-            st.caption("Ayrıntılı emir tabloları aşağıda.")
+            st.caption("Kısa özet. Ayrıntılı Türkçe öneri hemen altta.")
         else:
             st.success("Bugün işlem yok — dokunma.")
+
+    with st.container(border=True):
+        st.subheader("Uzman önerisi", icon=":material/person:")
+        st.markdown(expert.replace("\n", "  \n"))
 
     st.subheader("1) PP EMRİ")
     if pp_orders:
