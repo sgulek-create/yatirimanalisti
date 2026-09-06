@@ -1,0 +1,8 @@
+Kod,Emir,Hedef ağırlık,İşlem ₺,Güven,Gerekçe
+TLY,AZALT,0.4,-11816.92,0.85,TLY %48.7 > %45 tavan — fazla BPZ'ye
+TLV,AZALT,0.11887511339860861,-5376.02,0.78,Tera toplam %78 > %70 — katılım parkı Tera dışına kaydır
+TP2,AZALT,0.09463110036354096,-5502.35,0.8,Tera yoğunluğu — PP parkını Tera dışına dağıt (BPZ)
+GMC,TUT,0.04,0.0,0.6,Gümüş hedge (SLV vekil) — küçük tutulur; üzerine yığma
+BOS,SAT,0.0,-1666.26,0.82,"BOS %-22.7 zararda; TLY kopyası değil — ortalama düşürme, SAT"
+NVDA,AZALT,0.08434294836703721,-2860.75,0.68,NVDA +%27 kârda — %20 kısmi realize; AVGO/AMD yığma
+MSTR,TUT,0.0631587098122718,0.0,0.55,Vol/corr eşiği aşılmadı — TUT; BTC beta izle
