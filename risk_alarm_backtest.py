@@ -29,12 +29,17 @@ def main() -> None:
     pp_daily = 0.001
     try:
         pp_table = load_pp_table()
-        if not pp_table.empty:
+        if not pp_table.empty and "daily_return" in pp_table.columns:
+            sub = pp_table[pp_table["fund_code"].isin(["TP2", "TLV"])]
+            if not sub.empty and sub["daily_return"].notna().any():
+                pp_daily = float(sub["daily_return"].mean())
+        elif not pp_table.empty:
             sub = pp_table[pp_table["fund_code"].isin(["TP2", "TLV"])]
             if not sub.empty and sub["daily_approx"].notna().any():
                 pp_daily = float(sub["daily_approx"].mean() / 100.0)
     except Exception as exc:  # noqa: BLE001
         print(f"PP oran fallback: {exc}")
+        pp_table = pd.DataFrame()
 
     risk = compute_risk(weights, pp_daily_rate=pp_daily)
 

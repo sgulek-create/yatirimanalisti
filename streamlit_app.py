@@ -38,12 +38,12 @@ st.title("Kişisel yatırım uzmanı", icon=":material/psychology:")
 
 mode = st.segmented_control(
     "Modül",
-    options=["Uzman emirleri", "Fırsat tarayıcısı"],
+    options=["Uzman emirleri", "PP park taraması"],
     default="Uzman emirleri",
     label_visibility="collapsed",
 )
 
-if mode == "Fırsat tarayıcısı":
+if mode == "PP park taraması":
     tarayici.render()
 else:
     uzman.render()
