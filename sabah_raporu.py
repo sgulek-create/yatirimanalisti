@@ -33,6 +33,12 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            pass
+
     print("Sabah raporu üretiliyor…")
     report = generate_morning_report()
     path = save_report(report)
@@ -41,6 +47,10 @@ def main() -> int:
     if args.do_print:
         print()
         print(report["text"])
+        print()
+        print("3 MADDELİK AKSİYON:")
+        for i, line in enumerate(report.get("actions") or [], 1):
+            print(f"  {i}. {line}")
 
     if args.email:
         cfg = load_mail_config()

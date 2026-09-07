@@ -17,6 +17,70 @@ def _tl(amount: float) -> str:
     return f"₺{abs(amount):,.0f}".replace(",", ".")
 
 
+def build_action_trio(
+    book: pd.DataFrame,
+    risk_snapshot: Any,
+    pp_orders: list,
+    position_orders: list | None = None,
+    book_total: float | None = None,
+) -> list[str]:
+    """Uyuyan ajan çıktısı: en fazla 3 net aksiyon (veya dokunma)."""
+    position_orders = position_orders or []
+    actions: list[tuple[int, str]] = []  # priority, text
+
+    for o in position_orders:
+        action = getattr(o, "action", "")
+        if action not in {"SAT", "AZALT"}:
+            continue
+        code = getattr(o, "code", "?")
+        size = abs(getattr(o, "size_tl", 0) or 0)
+        reason = getattr(o, "reason", "")
+        pri = 10 if action == "SAT" else 20
+        verb = "SAT" if action == "SAT" else "KÜÇÜLT"
+        actions.append((pri, f"{verb} {code} · {_tl(size)} · {reason}"))
+
+    for o in pp_orders:
+        if getattr(o, "action", "") != "GEÇ":
+            continue
+        frm = getattr(o, "from_code", "?")
+        to = getattr(o, "to_code", "?")
+        amt = getattr(o, "amount_tl", 0) or 0
+        reason = getattr(o, "reason", "")
+        actions.append((30, f"GEÇ {frm} → {to} · {_tl(amt)} · {reason}"))
+
+    mstr_vol = getattr(risk_snapshot, "mstr_vol_pct", None)
+    if mstr_vol is not None and mstr_vol > RULES["mstr_vol_annual_pct"]:
+        actions.append(
+            (
+                15,
+                f"RİSK MSTR · yıllık oynaklık %{mstr_vol:.0f} > eşik "
+                f"%{RULES['mstr_vol_annual_pct']:.0f} — küçült / realize et",
+            )
+        )
+
+    total_now = float(book["value_tl"].sum())
+    if book_total and book_total > 0:
+        delta = (total_now / book_total - 1.0) * 100.0
+        if abs(delta) >= 1.0:
+            actions.append(
+                (
+                    40,
+                    f"İŞARET · canlı kitap farkı %{delta:+.2f} "
+                    f"({_tl(total_now)} vs {_tl(book_total)}) — Midas bakiyeyi doğrula",
+                )
+            )
+
+    actions.sort(key=lambda x: x[0])
+    lines = [t for _, t in actions[:3]]
+    if not lines:
+        lines = [
+            "DOKUNMA · Eşik aşılmadı. Bugün yeni alım yok; TLY avı yasak.",
+            "PARK · PP tamponunu koru; valör için nakdi önceden tut.",
+            "İZLE · MSTR vol ve Tera yoğunluğu; alarm yoksa beklemeye devam.",
+        ]
+    return lines
+
+
 def build_clean_briefing(
     book: pd.DataFrame,
     risk_snapshot: Any,

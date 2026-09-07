@@ -1,13 +1,16 @@
-# Her iş günü 08:00'de sabah raporu üret (+ e-posta, ayarlıysa)
-# Kurulum (PowerShell, yönetici gerekmez):
+# Her is gunu 08:00'de sabah raporu uret (+ e-posta, ayarliysa)
+# Kurulum:
 #   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 #   .\kur_sabah_gorevi.ps1
-# Kaldır:
+# Simdi dene:
+#   .\kur_sabah_gorevi.ps1 -RunNow
+# Kaldir:
 #   .\kur_sabah_gorevi.ps1 -Remove
 
 param(
     [switch]$Remove,
     [switch]$WithEmail,
+    [switch]$RunNow,
     [string]$Time = "08:00"
 )
 
@@ -27,14 +30,22 @@ if (-not (Test-Path $Python)) {
     exit 1
 }
 
-$args = "`"$Script`""
-if ($WithEmail) {
-    $args = "`"$Script`" --email"
+if ($RunNow) {
+    Write-Host "Simdi calistiriliyor..."
+    $argList = @($Script)
+    if ($WithEmail) { $argList += "--email" }
+    $argList += "--print"
+    & $Python @argList
+    exit $LASTEXITCODE
 }
 
-$Action = New-ScheduledTaskAction -Execute $Python -Argument $args -WorkingDirectory $Root
+$argLine = "`"$Script`""
+if ($WithEmail) {
+    $argLine = "`"$Script`" --email"
+}
+
+$Action = New-ScheduledTaskAction -Execute $Python -Argument $argLine -WorkingDirectory $Root
 $Trigger = New-ScheduledTaskTrigger -Daily -At $Time
-# Hafta ici: Pazartesi-Cuma (1=Pazar ... 6=Cuma 7=Cumartesi) — Daily yeterli; tatil filtre yok
 $Settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries
 
 Register-ScheduledTask `
@@ -42,13 +53,13 @@ Register-ScheduledTask `
     -Action $Action `
     -Trigger $Trigger `
     -Settings $Settings `
-    -Description "Yanaliz sabah brifingi ve portfoy emirleri" `
+    -Description "Yanaliz sabah brifingi: 3 maddelik aksiyon + portfoy emirleri" `
     -Force | Out-Null
 
 Write-Host "Gorev kuruldu: $TaskName her gun $Time"
-Write-Host "Test: $Python $Script"
+Write-Host "Simdi dene: .\kur_sabah_gorevi.ps1 -RunNow"
 if ($WithEmail) {
-    Write-Host "E-posta acik — .streamlit\secrets.toml icinde [smtp] olmali."
+    Write-Host "E-posta acik - .streamlit\secrets.toml icinde [smtp] olmali."
 } else {
     Write-Host "Sadece dosya: data\sabah_raporu_son.txt"
     Write-Host "E-posta icin: .\kur_sabah_gorevi.ps1 -WithEmail"

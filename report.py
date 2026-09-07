@@ -15,15 +15,23 @@ from typing import Any
 import pandas as pd
 
 try:
-    from utils.briefing import build_clean_briefing, build_expert_note
+    from utils.briefing import (
+        build_action_trio,
+        build_clean_briefing,
+        build_expert_note,
+    )
     from utils.orders import decide_positions, orders_to_frame
-    from utils.portfolio import portfolio_frame
+    from utils.portfolio import AS_OF, USDTRY, portfolio_frame
     from utils.pp_scan import build_pp_orders, format_pp_emri, load_pp_table
     from utils.risk_engine import compute_risk
 except ImportError:
-    from briefing import build_clean_briefing, build_expert_note
+    from briefing import (
+        build_action_trio,
+        build_clean_briefing,
+        build_expert_note,
+    )
     from orders import decide_positions, orders_to_frame
-    from portfolio import portfolio_frame
+    from portfolio import AS_OF, USDTRY, portfolio_frame
     from pp_scan import build_pp_orders, format_pp_emri, load_pp_table
     from risk_engine import compute_risk
 
@@ -117,10 +125,14 @@ def load_mail_config() -> MailConfig | None:
 
 
 def generate_morning_report(as_of: date | None = None) -> dict[str, Any]:
-    """Canlı veri + emir + Türkçe uzman notu."""
+    """Canlı veri + emir + Türkçe uzman notu + 3 maddelik aksiyon."""
     day = as_of or date.today()
-    book, total = portfolio_frame()
+    book, total = portfolio_frame(live=True)
+    book_total = float(book.attrs.get("book_total") or book["value_tl_book"].sum())
     weights = book.set_index("code")["weight"].to_dict()
+    live_as_of = str(book["as_of"].iloc[0]) if len(book) else AS_OF
+    fx = float(book["usdtry"].iloc[0]) if len(book) else USDTRY
+    delta_pct = (total / book_total - 1.0) * 100.0 if book_total else 0.0
 
     pp_table = load_pp_table()
     pp_daily = 0.001
@@ -148,6 +160,9 @@ def generate_morning_report(as_of: date | None = None) -> dict[str, Any]:
     )
     pos_df = orders_to_frame(pos)
     briefing = build_clean_briefing(book, risk, pp_orders, position_orders=pos, as_of=day)
+    actions = build_action_trio(
+        book, risk, pp_orders, position_orders=pos, book_total=book_total
+    )
     expert = build_expert_note(book, pos, pp_orders, preferred_pp=preferred)
     pp_text = format_pp_emri(pp_orders, meta) if pp_orders else "PP EMRİ: veri yok"
 
@@ -160,10 +175,22 @@ def generate_morning_report(as_of: date | None = None) -> dict[str, Any]:
             f"P(ay≤-5%): %{(risk.p_loss_5pct or 0) * 100:.0f}"
         ).replace(",", ".")
 
+    action_block = "\n".join(f"{i}. {line}" for i, line in enumerate(actions, 1))
+    mark_line = (
+        f"Canlı: {live_as_of} · USDTRY {fx:.2f} · "
+        f"Toplam ₺{total:,.0f} (kitap {AS_OF}: ₺{book_total:,.0f}, Δ %{delta_pct:+.2f})"
+    ).replace(",", ".")
+
     full = "\n".join(
         [
             briefing["headline"],
             "=" * 48,
+            "3 MADDELİK AKSİYON (ajan — onay sende)",
+            "-" * 48,
+            action_block,
+            "",
+            mark_line,
+            "",
             briefing["body"],
             "",
             "UZMAN ÖNERİSİ",
@@ -184,6 +211,7 @@ def generate_morning_report(as_of: date | None = None) -> dict[str, Any]:
             var_line,
             "",
             "Bu rapor otomatik üretildi. Emir senin kuralların; uygulama senin.",
+            "Otomatik borsa emri yok — human-in-the-loop.",
         ]
     )
 
@@ -191,11 +219,15 @@ def generate_morning_report(as_of: date | None = None) -> dict[str, Any]:
         "as_of": day,
         "text": full,
         "briefing": briefing,
+        "actions": actions,
         "expert": expert,
         "pos_df": pos_df,
         "pp_orders": pp_orders,
         "risk": risk,
         "total": total,
+        "book_total": book_total,
+        "delta_pct": delta_pct,
+        "live_as_of": live_as_of,
     }
 
 
