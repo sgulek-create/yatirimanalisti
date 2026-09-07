@@ -1,4 +1,4 @@
-"""6 Eyl 2026 Midas portföy snapshot — kullanıcı kitabı."""
+"""6 Eyl 2026 Midas portföy snapshot — kullanıcı kitabı + canlı işaret."""
 
 from __future__ import annotations
 
@@ -118,7 +118,7 @@ MANIFESTO = (
 )
 
 
-def portfolio_frame():
+def _book_frame():
     import pandas as pd
 
     rows = []
@@ -129,18 +129,61 @@ def portfolio_frame():
                 "name": h.name,
                 "kind": h.kind,
                 "value_tl": h.value_tl,
+                "value_tl_book": h.value_tl,
+                "delta_pct": 0.0,
                 "pnl_pct": h.pnl_pct,
                 "manager": h.manager,
                 "valor": h.valor,
                 "value_usd": h.value_usd,
                 "cost_usd": h.cost_usd,
+                "price_source": "book",
+                "mark_date": AS_OF,
+                "mark_note": "kitap",
             }
         )
     df = pd.DataFrame(rows)
     total = float(df["value_tl"].sum())
-    df["weight"] = df["value_tl"] / total
+    df["weight"] = df["value_tl"] / total if total else 0.0
     df["as_of"] = AS_OF
     df["usdtry"] = USDTRY
+    df["live"] = False
+    return df, total
+
+
+def portfolio_frame(live: bool = True, bundle=None):
+    """Portföy tablosu. live=True ise TEFAS/yfinance ile yeniden değerler."""
+    import pandas as pd
+
+    if not live:
+        return _book_frame()
+
+    try:
+        from utils.live_prices import fetch_live_bundle, revalue_holdings
+    except ImportError:
+        from live_prices import fetch_live_bundle, revalue_holdings
+
+    if bundle is None:
+        bundle = fetch_live_bundle(
+            book_as_of=AS_OF,
+            book_usdtry=USDTRY,
+            holdings=HOLDINGS,
+        )
+    rows = revalue_holdings(HOLDINGS, bundle)
+    df = pd.DataFrame(rows)
+    total = float(df["value_tl"].sum())
+    df["weight"] = df["value_tl"] / total if total else 0.0
+    fx = bundle.usdtry_live if bundle.usdtry_live else USDTRY
+    live_day = None
+    for m in bundle.marks.values():
+        if m.live_date and (live_day is None or m.live_date > live_day):
+            live_day = m.live_date
+    df["as_of"] = live_day.isoformat() if live_day else AS_OF
+    df["as_of_book"] = AS_OF
+    df["usdtry"] = fx
+    df["usdtry_book"] = USDTRY
+    df["live"] = True
+    df.attrs["live_bundle"] = bundle
+    df.attrs["book_total"] = float(sum(h.value_tl for h in HOLDINGS))
     return df, total
 
 

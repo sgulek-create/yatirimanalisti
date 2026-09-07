@@ -43,13 +43,16 @@ class MailConfig:
     use_tls: bool = True
 
 
-def load_mail_config() -> MailConfig | None:
-    """Önce ortam değişkeni, sonra .streamlit/secrets.toml."""
+_PLACEHOLDER_PW = ("BURAYA_UYGULAMA_SIFRESI", "uygulama-sifren", "changeme", "xxx")
+
+
+def _smtp_fields() -> dict[str, str | int]:
+    """Ortam + secrets.toml birleşik alanlar (şifre dahil)."""
     host = os.getenv("SMTP_HOST", "").strip()
     user = os.getenv("SMTP_USER", "").strip()
     password = os.getenv("SMTP_PASSWORD", "").strip()
     mail_to = os.getenv("MAIL_TO", "").strip()
-    mail_from = os.getenv("MAIL_FROM", user).strip()
+    mail_from = os.getenv("MAIL_FROM", "").strip()
     port = int(os.getenv("SMTP_PORT", "587") or 587)
 
     if SECRETS.exists():
@@ -60,10 +63,48 @@ def load_mail_config() -> MailConfig | None:
         user = user or str(smtp.get("user", "")).strip()
         password = password or str(smtp.get("password", "")).strip()
         mail_to = mail_to or str(smtp.get("to", "")).strip()
-        mail_from = mail_from or str(smtp.get("from", user)).strip()
+        mail_from = mail_from or str(smtp.get("from", "")).strip()
         port = int(smtp.get("port", port) or port)
 
+    return {
+        "host": host,
+        "user": user,
+        "password": password,
+        "mail_to": mail_to,
+        "mail_from": mail_from or user,
+        "port": port,
+    }
+
+
+def mail_status() -> dict[str, Any]:
+    """UI için: alıcı + hazır mı (şifre placeholder sayılmaz)."""
+    f = _smtp_fields()
+    pw = str(f["password"])
+    ready = bool(
+        f["host"]
+        and f["user"]
+        and f["mail_to"]
+        and pw
+        and pw.lower() not in {p.lower() for p in _PLACEHOLDER_PW}
+    )
+    return {
+        "ready": ready,
+        "to": str(f["mail_to"]) or None,
+        "user": str(f["user"]) or None,
+        "secrets_file": SECRETS.exists(),
+    }
+
+
+def load_mail_config() -> MailConfig | None:
+    """Önce ortam değişkeni, sonra .streamlit/secrets.toml."""
+    f = _smtp_fields()
+    host, user, password = str(f["host"]), str(f["user"]), str(f["password"])
+    mail_to, mail_from = str(f["mail_to"]), str(f["mail_from"])
+    port = int(f["port"])
+
     if not (host and user and password and mail_to):
+        return None
+    if password.lower() in {p.lower() for p in _PLACEHOLDER_PW}:
         return None
     return MailConfig(
         host=host,
