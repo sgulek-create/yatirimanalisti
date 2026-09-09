@@ -32,8 +32,9 @@ if not _has_pkg and not _has_flat:
     st.stop()
 
 if _has_pkg:
-    from views import tarayici, uzman  # noqa: E402
+    from views import firsat, tarayici, uzman  # noqa: E402
 else:
+    import firsat  # noqa: E402
     import tarayici  # noqa: E402
     import uzman  # noqa: E402
 
@@ -43,12 +44,14 @@ if _has_flat and not _has_pkg:
 
 mode = st.segmented_control(
     "Modül",
-    options=["Uzman emirleri", "PP park taraması"],
+    options=["Uzman emirleri", "Fırsat ajanı", "PP park taraması"],
     default="Uzman emirleri",
     label_visibility="collapsed",
 )
 
 if mode == "PP park taraması":
     tarayici.render()
+elif mode == "Fırsat ajanı":
+    firsat.render()
 else:
     uzman.render()

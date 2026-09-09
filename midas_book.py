@@ -329,6 +329,48 @@ def editor_frame_to_holdings(df) -> list[Holding]:
     return out
 
 
+def editor_frame_to_book(
+    df,
+    *,
+    as_of: str | None = None,
+    usdtry: float | None = None,
+    note: str = "Midas uygulamasından elle",
+) -> dict[str, Any]:
+    """Uzman ekranı: data_editor → kitap dict (save_book ile yazılır)."""
+    holdings = editor_frame_to_holdings(df)
+    return {
+        "as_of": as_of or date.today().isoformat(),
+        "usdtry": usdtry,
+        "source": "midas_manual",
+        "note": note,
+        "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "holdings": [
+            {
+                "code": h.code,
+                "name": h.name,
+                "kind": h.kind,
+                "value_tl": h.value_tl,
+                "pnl_pct": h.pnl_pct,
+                "manager": h.manager,
+                "valor": h.valor,
+                "value_usd": h.value_usd,
+                "cost_usd": h.cost_usd,
+                "units": h.units,
+            }
+            for h in holdings
+        ],
+    }
+
+
+def save_book(payload: dict[str, Any] | list[Holding]) -> Path:
+    """Dict kitap veya Holding listesi — ikisi de geçerli."""
+    if isinstance(payload, list):
+        return persist_holdings(payload)
+    data = load_raw()
+    data.update(payload)
+    data["updated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    return save_raw(data)
+
+
 # Geriye uyum alias
 DEFAULT_HOLDINGS = [_row_to_holding(r) for r in SEED]
-save_book = persist_holdings  # type: ignore[assignment]

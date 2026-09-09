@@ -20,6 +20,7 @@ try:
         build_clean_briefing,
         build_expert_note,
     )
+    from utils.opportunity_agent import format_opportunity_cards, generate_opportunities
     from utils.orders import decide_positions, orders_to_frame
     from utils.portfolio import get_book_as_of, get_book_usdtry, portfolio_frame
     from utils.pp_scan import build_pp_orders, format_pp_emri, load_pp_table
@@ -30,6 +31,7 @@ except ImportError:
         build_clean_briefing,
         build_expert_note,
     )
+    from opportunity_agent import format_opportunity_cards, generate_opportunities
     from orders import decide_positions, orders_to_frame
     from portfolio import get_book_as_of, get_book_usdtry, portfolio_frame
     from pp_scan import build_pp_orders, format_pp_emri, load_pp_table
@@ -168,6 +170,14 @@ def generate_morning_report(as_of: date | None = None) -> dict[str, Any]:
     )
     expert = build_expert_note(book, pos, pp_orders, preferred_pp=preferred)
     pp_text = format_pp_emri(pp_orders, meta) if pp_orders else "PP EMRİ: veri yok"
+    opportunities = generate_opportunities(
+        book,
+        pp_table,
+        total_tl=total,
+        mstr_vol_pct=risk.mstr_vol_pct,
+        max_cards=3,
+    )
+    firsat_text = format_opportunity_cards(opportunities, as_of=day)
 
     alarms = "\n".join(f"- {a}" for a in risk.alarms)
     var_line = ""
@@ -188,11 +198,13 @@ def generate_morning_report(as_of: date | None = None) -> dict[str, Any]:
         [
             briefing["headline"],
             "=" * 48,
-            "3 MADDELİK AKSİYON (ajan — onay sende)",
+            "3 MADDELİK AKSİYON (doktor — onay sende)",
             "-" * 48,
             action_block,
             "",
             mark_line,
+            "",
+            firsat_text,
             "",
             briefing["body"],
             "",
@@ -223,6 +235,7 @@ def generate_morning_report(as_of: date | None = None) -> dict[str, Any]:
         "text": full,
         "briefing": briefing,
         "actions": actions,
+        "opportunities": opportunities,
         "expert": expert,
         "pos_df": pos_df,
         "pp_orders": pp_orders,

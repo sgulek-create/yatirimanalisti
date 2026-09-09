@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
 try:
@@ -24,9 +25,11 @@ def render() -> None:
         "amaç park + silah, yeni TLY aramak değil."
     )
 
-    book, _ = portfolio_frame()
-    tp2_v = float(book.loc[book["code"] == "TP2", "value_tl"].iloc[0])
-    tlv_v = float(book.loc[book["code"] == "TLV", "value_tl"].iloc[0])
+    book, _ = portfolio_frame(live=False)
+    tp2_rows = book.loc[book["code"] == "TP2", "value_tl"]
+    tlv_rows = book.loc[book["code"] == "TLV", "value_tl"]
+    tp2_v = float(tp2_rows.iloc[0]) if len(tp2_rows) else 0.0
+    tlv_v = float(tlv_rows.iloc[0]) if len(tlv_rows) else 0.0
 
     try:
         with st.spinner("TEFAS PP…"):
