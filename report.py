@@ -21,7 +21,7 @@ try:
         build_expert_note,
     )
     from utils.orders import decide_positions, orders_to_frame
-    from utils.portfolio import AS_OF, USDTRY, portfolio_frame
+    from utils.portfolio import get_book_as_of, get_book_usdtry, portfolio_frame
     from utils.pp_scan import build_pp_orders, format_pp_emri, load_pp_table
     from utils.risk_engine import compute_risk
 except ImportError:
@@ -31,7 +31,7 @@ except ImportError:
         build_expert_note,
     )
     from orders import decide_positions, orders_to_frame
-    from portfolio import AS_OF, USDTRY, portfolio_frame
+    from portfolio import get_book_as_of, get_book_usdtry, portfolio_frame
     from pp_scan import build_pp_orders, format_pp_emri, load_pp_table
     from risk_engine import compute_risk
 
@@ -125,14 +125,15 @@ def load_mail_config() -> MailConfig | None:
 
 
 def generate_morning_report(as_of: date | None = None) -> dict[str, Any]:
-    """Canlı veri + emir + Türkçe uzman notu + 3 maddelik aksiyon."""
+    """Midas kitabı + emir + Türkçe uzman notu + 3 maddelik aksiyon."""
     day = as_of or date.today()
-    book, total = portfolio_frame(live=True)
-    book_total = float(book.attrs.get("book_total") or book["value_tl_book"].sum())
+    book, total = portfolio_frame(live=False)
+    book_as_of = get_book_as_of()
+    fx = get_book_usdtry()
+    book_total = total
     weights = book.set_index("code")["weight"].to_dict()
-    live_as_of = str(book["as_of"].iloc[0]) if len(book) else AS_OF
-    fx = float(book["usdtry"].iloc[0]) if len(book) else USDTRY
-    delta_pct = (total / book_total - 1.0) * 100.0 if book_total else 0.0
+    live_as_of = book_as_of
+    delta_pct = 0.0
 
     pp_table = load_pp_table()
     pp_daily = 0.001
@@ -141,8 +142,10 @@ def generate_morning_report(as_of: date | None = None) -> dict[str, Any]:
         if not sub.empty and sub["daily_return"].notna().any():
             pp_daily = float(sub["daily_return"].mean())
 
-    tp2_v = float(book.loc[book["code"] == "TP2", "value_tl"].iloc[0])
-    tlv_v = float(book.loc[book["code"] == "TLV", "value_tl"].iloc[0])
+    tp2_rows = book.loc[book["code"] == "TP2", "value_tl"]
+    tlv_rows = book.loc[book["code"] == "TLV", "value_tl"]
+    tp2_v = float(tp2_rows.iloc[0]) if len(tp2_rows) else 0.0
+    tlv_v = float(tlv_rows.iloc[0]) if len(tlv_rows) else 0.0
     pp_orders, meta = build_pp_orders(pp_table, tp2_v, tlv_v) if not pp_table.empty else ([], {})
 
     preferred = None
@@ -177,8 +180,8 @@ def generate_morning_report(as_of: date | None = None) -> dict[str, Any]:
 
     action_block = "\n".join(f"{i}. {line}" for i, line in enumerate(actions, 1))
     mark_line = (
-        f"Canlı: {live_as_of} · USDTRY {fx:.2f} · "
-        f"Toplam ₺{total:,.0f} (kitap {AS_OF}: ₺{book_total:,.0f}, Δ %{delta_pct:+.2f})"
+        f"Midas kitap: {live_as_of} · USDTRY {fx:.2f} · "
+        f"Toplam ₺{total:,.0f}"
     ).replace(",", ".")
 
     full = "\n".join(

@@ -1,18 +1,19 @@
-"""6 Eyl 2026 Midas portföy snapshot — kullanıcı kitabı + canlı işaret."""
+"""Portföy — Midas gerçek kitap + isteğe bağlı TEFAS/yfinance işaret."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-USDTRY = 48.42
-AS_OF = "2026-09-06"
+# Şablon (ilk kurulum). Gerçek bakiye: data/midas_kitap.json
+USDTRY_DEFAULT = 48.42
+AS_OF_DEFAULT = "2026-09-06"
 
 
 @dataclass(frozen=True)
 class Holding:
     code: str
     name: str
-    kind: str  # serbest | pp | katilim_pp | emtia | hisse_serbest | abd_hisse
+    kind: str  # serbest | pp | katilim_pp | emtia | hisse_serbest | abd_hisse | nakit
     value_tl: float
     pnl_pct: float | None = None
     manager: str = ""
@@ -21,7 +22,7 @@ class Holding:
     value_usd: float | None = None
 
 
-HOLDINGS: list[Holding] = [
+DEFAULT_HOLDINGS: list[Holding] = [
     Holding("TLY", "Tera 1. Serbest", "serbest", 66_085.84, 121.87, "Tera", "T+2"),
     Holding("TLV", "Tera katılım PP", "katilim_pp", 21_504.08, 19.47, "Tera", "T+1"),
     Holding("TP2", "Tera PP", "pp", 18_341.17, 22.29, "Tera", "T+1"),
@@ -31,7 +32,7 @@ HOLDINGS: list[Holding] = [
         "NVDA",
         "NVIDIA",
         "abd_hisse",
-        295.41 * USDTRY,
+        295.41 * USDTRY_DEFAULT,
         26.61,
         "",
         "T+1 (USD)",
@@ -42,7 +43,7 @@ HOLDINGS: list[Holding] = [
         "MSTR",
         "MicroStrategy",
         "abd_hisse",
-        176.97 * USDTRY,
+        176.97 * USDTRY_DEFAULT,
         -24.08,
         "",
         "T+1 (USD)",
@@ -50,6 +51,11 @@ HOLDINGS: list[Holding] = [
         value_usd=176.97,
     ),
 ]
+
+# Geriye uyum
+HOLDINGS = DEFAULT_HOLDINGS
+USDTRY = USDTRY_DEFAULT
+AS_OF = AS_OF_DEFAULT
 
 # PP tarama evreni (kullanıcı + lig)
 PP_UNIVERSE: list[str] = [
@@ -67,16 +73,14 @@ PP_UNIVERSE: list[str] = [
     "PRR",
 ]
 
-# Katılım PP — yalnızca adında/künyesinde katılım olanlar (PRY/PNU kör hedef değil)
 KATILIM_PP: set[str] = {
     "TLV",
     "TI1",
     "ILH",
     "GJH",
-    "PRR",  # Inveo katılım PP
+    "PRR",
 }
 
-# Konvansiyonel PP (PRY/PNU buraya — TLV rakibi değiller)
 CONVENTIONAL_PP: set[str] = {
     "TP2",
     "GTL",
@@ -90,7 +94,6 @@ CONVENTIONAL_PP: set[str] = {
     "PPT",
 }
 
-# Serbest / hisse — PP parkına sokma
 EXCLUDE_FROM_PP: set[str] = {"PHE", "TLY", "BOS"}
 
 RULES = {
@@ -98,18 +101,17 @@ RULES = {
     "tera_max_weight": 0.70,
     "mstr_vol_annual_pct": 100.0,
     "nvda_mstr_corr": 0.50,
-    "pp_switch_1m_pp": 0.25,  # yüzde puan
+    "pp_switch_1m_pp": 0.25,
     "pp_switch_need_3m": True,
     "proxy_tly": "XU100*1.35",
     "proxy_gmc": "SLV",
     "proxy_bos": "XU100*1.2",
 }
 
-# Hedef kovalar — "yeni TLY avı" yok; PP ile yaşat
 TARGET_BUCKETS = {
-    "pp": (0.35, 0.40),  # park + silah (Tera dışı tercih)
-    "atak": (0.35, 0.40),  # mevcut tema / TLY tavanlı; kopya avı değil
-    "global_veya_emtia": (0.15, 0.20),  # NVDA veya GMC — ikisi birden zorlama
+    "pp": (0.35, 0.40),
+    "atak": (0.35, 0.40),
+    "global_veya_emtia": (0.15, 0.20),
 }
 
 MANIFESTO = (
@@ -118,11 +120,44 @@ MANIFESTO = (
 )
 
 
-def _book_frame():
+def get_holdings() -> list[Holding]:
+    try:
+        from utils.midas_book import active_holdings
+    except ImportError:
+        from midas_book import active_holdings
+
+    return active_holdings()
+
+
+def get_book_as_of() -> str:
+    try:
+        from utils.midas_book import book_meta
+    except ImportError:
+        from midas_book import book_meta
+
+    meta = book_meta()
+    return str(meta.get("as_of") or AS_OF_DEFAULT)
+
+
+def get_book_usdtry() -> float:
+    try:
+        from utils.midas_book import book_meta
+    except ImportError:
+        from midas_book import book_meta
+
+    meta = book_meta()
+    fx = meta.get("usdtry")
+    return float(fx) if fx else USDTRY_DEFAULT
+
+
+def _book_frame(holdings: list[Holding] | None = None):
     import pandas as pd
 
+    rows_h = holdings or get_holdings()
+    as_of = get_book_as_of()
+    fx = get_book_usdtry()
     rows = []
-    for h in HOLDINGS:
+    for h in rows_h:
         rows.append(
             {
                 "code": h.code,
@@ -136,26 +171,37 @@ def _book_frame():
                 "valor": h.valor,
                 "value_usd": h.value_usd,
                 "cost_usd": h.cost_usd,
-                "price_source": "book",
-                "mark_date": AS_OF,
-                "mark_note": "kitap",
+                "price_source": "midas",
+                "mark_date": as_of,
+                "mark_note": "Midas gerçek",
             }
         )
     df = pd.DataFrame(rows)
-    total = float(df["value_tl"].sum())
+    total = float(df["value_tl"].sum()) if len(df) else 0.0
     df["weight"] = df["value_tl"] / total if total else 0.0
-    df["as_of"] = AS_OF
-    df["usdtry"] = USDTRY
+    df["as_of"] = as_of
+    df["as_of_book"] = as_of
+    df["usdtry"] = fx
+    df["usdtry_book"] = fx
     df["live"] = False
+    df.attrs["book_total"] = total
     return df, total
 
 
-def portfolio_frame(live: bool = True, bundle=None):
-    """Portföy tablosu. live=True ise TEFAS/yfinance ile yeniden değerler."""
+def portfolio_frame(live: bool = False, bundle=None):
+    """Portföy tablosu.
+
+    live=False (varsayılan): Midas kitabı — ekranda gördüğün gerçek.
+    live=True: TEFAS/yfinance tahmini işaret (kitaptan sapabilir).
+    """
     import pandas as pd
 
+    holdings = get_holdings()
+    as_of = get_book_as_of()
+    fx_book = get_book_usdtry()
+
     if not live:
-        return _book_frame()
+        return _book_frame(holdings)
 
     try:
         from utils.live_prices import fetch_live_bundle, revalue_holdings
@@ -164,26 +210,26 @@ def portfolio_frame(live: bool = True, bundle=None):
 
     if bundle is None:
         bundle = fetch_live_bundle(
-            book_as_of=AS_OF,
-            book_usdtry=USDTRY,
-            holdings=HOLDINGS,
+            book_as_of=as_of,
+            book_usdtry=fx_book,
+            holdings=holdings,
         )
-    rows = revalue_holdings(HOLDINGS, bundle)
+    rows = revalue_holdings(holdings, bundle)
     df = pd.DataFrame(rows)
-    total = float(df["value_tl"].sum())
+    total = float(df["value_tl"].sum()) if len(df) else 0.0
     df["weight"] = df["value_tl"] / total if total else 0.0
-    fx = bundle.usdtry_live if bundle.usdtry_live else USDTRY
+    fx = bundle.usdtry_live if bundle.usdtry_live else fx_book
     live_day = None
     for m in bundle.marks.values():
         if m.live_date and (live_day is None or m.live_date > live_day):
             live_day = m.live_date
-    df["as_of"] = live_day.isoformat() if live_day else AS_OF
-    df["as_of_book"] = AS_OF
+    df["as_of"] = live_day.isoformat() if live_day else as_of
+    df["as_of_book"] = as_of
     df["usdtry"] = fx
-    df["usdtry_book"] = USDTRY
+    df["usdtry_book"] = fx_book
     df["live"] = True
     df.attrs["live_bundle"] = bundle
-    df.attrs["book_total"] = float(sum(h.value_tl for h in HOLDINGS))
+    df.attrs["book_total"] = float(sum(h.value_tl for h in holdings))
     return df, total
 
 
